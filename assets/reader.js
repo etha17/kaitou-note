@@ -144,6 +144,11 @@
       var revised = (a.rev || 0) > 0;
       var photos = h("div", { class: "photos" });
       (a.photos || []).forEach(function (pid, i) {
+        var info = (S.index.photos || {})[pid] || {};
+        if (NK.isPdf(info.t)) {
+          photos.appendChild(NK.pdfBlock(photoUrl(pid), a.title + " の PDF " + (i + 1)));
+          return;
+        }
         var img = h("img", { alt: a.title + " の解答 " + (i + 1) });
         var btn = h("button", {
           class: "view", type: "button",

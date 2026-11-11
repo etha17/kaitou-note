@@ -92,18 +92,26 @@
         return toBlob(c, "image/jpeg", m.q);
       });
     }, function () {
-      throw { userMessage: "「" + file.name + "」を読み込めませんでした。JPEG か PNG の写真を選んでください。" };
+      throw { userMessage: "「" + file.name + "」を読み込めませんでした。JPEG・PNG の写真か PDF を選んでください。" };
     }).then(function (blob) {
       if (!blob) throw { userMessage: "写真を変換できませんでした。" };
       return blob;
     });
   }
+  var PDF_MAX = 20 * 1024 * 1024;   /* GitHub の画面から上げられるのは1ファイル25MBまで */
+  function isPdfFile(f) { return f.type === "application/pdf" || /\.pdf$/i.test(f.name || ""); }
+  function preparePdf(file) {
+    if (file.size > PDF_MAX) {
+      return Promise.reject({ userMessage: "「" + file.name + "」は " + NK.mb(file.size) + " あり、大きすぎます。20MB 以下の PDF にしてください。" });
+    }
+    return Promise.resolve(new Blob([file], { type: "application/pdf" }));
+  }
   function addPhotos(files) {
     var ids = [], i = 0;
     function next() {
       if (i >= files.length) return Promise.resolve(ids);
-      NK.showBusy("写真を取り込み中 " + (i + 1) + " / " + files.length);
-      return shrink(files[i]).then(function (blob) {
+      NK.showBusy("取り込み中 " + (i + 1) + " / " + files.length);
+      return (isPdfFile(files[i]) ? preparePdf(files[i]) : shrink(files[i])).then(function (blob) {
         return blob.arrayBuffer().then(function (buf) {
           return NK.encBytes(S.key, buf).then(function (bytes) {
             var pid = NK.nid("p");
@@ -370,7 +378,7 @@
       title: "解答を追加", submit: "追加する",
       fields: [
         { id: "title", label: "問題名", required: true, placeholder: "例：問3 (2)" },
-        { id: "files", label: "解答の写真", type: "files", required: true, help: "複数枚まとめて選べます。" },
+        { id: "files", label: "解答の写真・PDF", type: "files", required: true, help: "写真と PDF を複数まとめて選べます。PDF は画質を落とさずそのまま入ります（20MB まで）。" },
         { id: "note", label: "メモ（任意）", type: "textarea", placeholder: "例：(2) は置換積分で解いた" }
       ]
     }).then(function (v) {
@@ -528,7 +536,7 @@
     nav.appendChild(h("section", null, h("div", { class: "course-head" }, h("h2", { text: "単元" })), list,
       h("button", { class: "add", type: "button", text: "＋ 単元を追加", on: { click: addUnit } })));
     nav.appendChild(h("div", { class: "side-tools" },
-      h("div", { class: "meter", text: "写真 " + Object.keys(S.photos).length + "枚 ・ " + NK.mb(usedBytes()) }),
+      h("div", { class: "meter", text: "写真・PDF " + Object.keys(S.photos).length + "件 ・ " + NK.mb(usedBytes()) }),
       h("button", { class: "icon", type: "button", text: "写真の画質：" + MODES[photoMode()].label, on: { click: togglePhotoMode } }),
       h("button", { class: "icon", type: "button", text: "科目名を変更", on: { click: renameSubject } }),
       h("button", { class: "icon", type: "button", text: "合言葉を変更", on: { click: changePass } }),
@@ -562,16 +570,23 @@
       var revised = (a.rev || 0) > 0;
       var photos = h("div", { class: "photos" });
       (a.photos || []).forEach(function (pid, i) {
-        var img = h("img", { alt: a.title + " の解答 " + (i + 1) });
-        photoUrl(pid).then(function (u) { img.src = u; }, function () { img.alt = "写真を読み込めませんでした"; });
-        photos.appendChild(h("figure", { class: "photo" },
-          h("button", {
-            class: "view", type: "button", "aria-label": a.title + " の写真 " + (i + 1) + " を拡大",
-            on: { click: function () { if (img.src) NK.lightbox(img.src); } }
-          }, img),
-          h("div", { class: "tools" },
-            h("button", { class: "icon", type: "button", text: "この写真を差し替え", on: { click: function () { replacePhoto(a, pid); } } }),
-            h("button", { class: "icon danger", type: "button", text: "写真を削除", on: { click: function () { removePhoto(a, pid); } } }))));
+        var pdf = NK.isPdf((S.photos[pid] || {}).t), fig;
+        var tools = h("div", { class: "tools" },
+          h("button", { class: "icon", type: "button", text: pdf ? "この PDF を差し替え" : "この写真を差し替え", on: { click: function () { replacePhoto(a, pid); } } }),
+          h("button", { class: "icon danger", type: "button", text: pdf ? "PDF を削除" : "写真を削除", on: { click: function () { removePhoto(a, pid); } } }));
+        if (pdf) {
+          fig = NK.pdfBlock(photoUrl(pid), a.title + " の PDF " + (i + 1));
+        } else {
+          var img = h("img", { alt: a.title + " の解答 " + (i + 1) });
+          photoUrl(pid).then(function (u) { img.src = u; }, function () { img.alt = "写真を読み込めませんでした"; });
+          fig = h("figure", { class: "photo" },
+            h("button", {
+              class: "view", type: "button", "aria-label": a.title + " の写真 " + (i + 1) + " を拡大",
+              on: { click: function () { if (img.src) NK.lightbox(img.src); } }
+            }, img));
+        }
+        fig.appendChild(tools);
+        photos.appendChild(fig);
       });
       wrap.appendChild(h("article", { class: "answer" + (revised ? " revised" : "") },
         h("div", { class: "answer-head" },
@@ -581,7 +596,7 @@
         photos,
         a.note ? h("p", { class: "note", text: a.note }) : null,
         h("div", { class: "answer-tools" },
-          h("button", { class: "icon", type: "button", text: "＋ 写真を追加", on: { click: function () { addPhoto(a); } } }),
+          h("button", { class: "icon", type: "button", text: "＋ 写真・PDF を追加", on: { click: function () { addPhoto(a); } } }),
           h("button", { class: "icon", type: "button", text: "問題名・メモを編集", on: { click: function () { editAnswer(a); } } }),
           h("button", { class: "icon danger", type: "button", text: "解答を削除", on: { click: function () { deleteAnswer(a); } } }))));
     });
@@ -623,6 +638,7 @@
   }
 
   /* ---------- 起動 ---------- */
+  $("pick").setAttribute("accept", "image/*,application/pdf,.pdf");   /* 差し替え・追加でも PDF を選べるように */
   $("navtoggle").addEventListener("click", function () {
     var o = $("nav").classList.toggle("open");
     this.setAttribute("aria-expanded", o ? "true" : "false");

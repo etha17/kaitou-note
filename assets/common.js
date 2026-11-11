@@ -100,7 +100,7 @@
       (opt.fields || []).forEach(function (f) {
         var id = "nk-f-" + f.id, input;
         if (f.type === "textarea") { input = h("textarea", { id: id, placeholder: f.placeholder }); input.value = f.value || ""; }
-        else if (f.type === "files") input = h("input", { id: id, type: "file", accept: "image/*", multiple: "multiple" });
+        else if (f.type === "files") input = h("input", { id: id, type: "file", accept: "image/*,application/pdf,.pdf", multiple: "multiple" });
         else if (f.type === "password") input = h("input", { id: id, type: "password", autocomplete: "new-password" });
         else { input = h("input", { id: id, type: "text", placeholder: f.placeholder, maxlength: "80", autocomplete: "off" }); input.value = f.value || ""; }
         if (f.required) input.required = true;
@@ -129,6 +129,21 @@
   }
   function confirmDelete(what, detail) {
     return openForm({ title: what + "を削除しますか？", message: detail || "この操作は元に戻せません。", submit: "削除する", danger: true });
+  }
+
+  /* ---------- PDF の表示 ---------- */
+  function isPdf(t) { return t === "application/pdf"; }
+  /* urlPromise が解決したら、ページ内に PDF を表示し、新しいタブで開くリンクも付ける */
+  function pdfBlock(urlPromise, label) {
+    var frame = h("iframe", {
+      title: label,
+      style: "display:block;width:100%;height:75vh;border:1px solid var(--line);border-radius:6px;background:var(--bg)"
+    });
+    var link = h("a", { class: "icon", target: "_blank", rel: "noopener", text: "PDF を新しいタブで開く", style: "display:inline-block;margin-top:4px" });
+    var fig = h("figure", { class: "photo" }, frame, link);
+    urlPromise.then(function (u) { frame.src = u; link.href = u; },
+      function () { link.textContent = "PDF を読み込めませんでした"; });
+    return fig;
   }
 
   /* ---------- 写真の拡大表示 ---------- */
@@ -176,7 +191,7 @@
   global.NK = {
     ITER: ITER, b64: b64, unb64: unb64, cleanPass: cleanPass, deriveKey: deriveKey,
     encBytes: encBytes, decBytes: decBytes, encJson: encJson, decJson: decJson,
-    h: h, nid: nid, fmt: fmt, mb: mb, byTitle: byTitle, safeId: safeId,
+    h: h, nid: nid, fmt: fmt, mb: mb, byTitle: byTitle, safeId: safeId, isPdf: isPdf, pdfBlock: pdfBlock,
     showBusy: showBusy, openForm: openForm, confirmDelete: confirmDelete, lightbox: lightbox,
     rememberKey: rememberKey, forgetKey: forgetKey, recallKey: recallKey, loadSubjects: loadSubjects,
     supported: function () { return !!(global.crypto && crypto.subtle && global.fetch); }
