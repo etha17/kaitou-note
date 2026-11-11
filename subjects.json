@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "subjects": [
+    { "id": "biseki", "name": "微分積分学" },
+    { "id": "senkei", "name": "線形代数学" }
+  ]
+}

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>解答ノート 編集</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Zen+Maru+Gothic:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="top">
+  <h1 id="title">解答ノート 編集</h1>
+  <p>自分用の編集ページ。ここで写真を追加し、できたファイルをサイトに置き換えます。</p>
+  <span class="tag" id="tag" hidden>編集中</span>
+  <a class="home" href="index.html">サイトを見る</a>
+</header>
+
+<div class="gate" id="gate"></div>
+
+<div class="shell" id="shell" hidden>
+  <div>
+    <button class="navtoggle" id="navtoggle" type="button" aria-expanded="false" aria-controls="nav">
+      <span id="navlabel">単元</span><span>切り替える</span>
+    </button>
+    <nav id="nav" aria-label="単元"></nav>
+  </div>
+  <main id="main"></main>
+</div>
+
+<input type="file" id="pick" accept="image/*" hidden>
+
+<script src="assets/common.js"></script>
+<script src="assets/zip.js"></script>
+<script src="assets/editor.js"></script>
+</body>
+</html>

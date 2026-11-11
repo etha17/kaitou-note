@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>解答ノート</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Zen+Maru+Gothic:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="page">
+  <h1>解答ノート</h1>
+  <p class="lead">科目を選ぶと、その科目の解答ページが開きます。開いた先で合言葉を入力してください。</p>
+  <ul class="subjects" id="list">
+    <li class="empty">読み込み中…</li>
+  </ul>
+</div>
+<script src="assets/common.js"></script>
+<script>
+(function () {
+  "use strict";
+  var h = NK.h, list = document.getElementById("list");
+
+  function show(items) {
+    list.textContent = "";
+    if (!items.length) {
+      list.appendChild(h("li", { class: "empty", text: "まだ科目が登録されていません。" }));
+      return;
+    }
+    items.forEach(function (s) {
+      list.appendChild(h("li", { class: "subject" },
+        h("a", { href: "subject.html?s=" + encodeURIComponent(s.id) },
+          h("span", { class: "name", text: s.name }),
+          h("span", { class: "go", text: "解答を見る →" }))));
+    });
+  }
+
+  if (!NK.supported()) {
+    list.textContent = "";
+    list.appendChild(h("li", { class: "empty", text: "このブラウザでは表示できません。Chrome、Safari、Edge などの新しいブラウザで開いてください。" }));
+    return;
+  }
+  NK.loadSubjects().then(show, function () { show([]); });
+})();
+</script>
+</body>
+</html>
