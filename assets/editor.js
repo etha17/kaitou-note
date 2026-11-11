@@ -3,18 +3,23 @@
   "use strict";
   var h = NK.h;
 
-  /* 写真の取り込み方。白黒・軽量のほうが通信量が半分ほどで済む。 */
+  /* 写真の取り込み方。左下のボタンで 高画質 → 標準 → 白黒・軽量 の順に切り替わる。
+     高画質は文字がくっきりするぶん、ファイルが2〜3倍になる。 */
+  var ORDER = ["high", "std", "gray"];
   var MODES = {
-    gray: { px: 1400, q: 0.6, gray: true, label: "白黒・軽量" },
-    color: { px: 1600, q: 0.72, gray: false, label: "カラー" }
+    high: { px: 2200, q: 0.85, gray: false, label: "高画質" },
+    std: { px: 1600, q: 0.72, gray: false, label: "標準" },
+    gray: { px: 1400, q: 0.6, gray: true, label: "白黒・軽量" }
   };
   function photoMode() {
     var v;
     try { v = localStorage.getItem("kaitou-photo-mode"); } catch (e) {}
-    return MODES[v] ? v : "gray";
+    if (v === "color") v = "std";
+    return MODES[v] ? v : "high";
   }
   function togglePhotoMode() {
-    try { localStorage.setItem("kaitou-photo-mode", photoMode() === "gray" ? "color" : "gray"); } catch (e) {}
+    var next = ORDER[(ORDER.indexOf(photoMode()) + 1) % ORDER.length];
+    try { localStorage.setItem("kaitou-photo-mode", next); } catch (e) {}
     render();
   }
 
@@ -93,22 +98,17 @@
       return blob;
     });
   }
-  function isPdfFile(f) { return f.type === "application/pdf" || /\.pdf$/i.test(f.name || ""); }
   function addPhotos(files) {
     var ids = [], i = 0;
     function next() {
       if (i >= files.length) return Promise.resolve(ids);
-      var f = files[i], pdf = isPdfFile(f);
-      NK.showBusy((pdf ? "資料" : "写真") + "を取り込み中 " + (i + 1) + " / " + files.length);
-      /* PDF は縮小せず、そのまま暗号化して置く */
-      return (pdf ? Promise.resolve(f) : shrink(f)).then(function (blob) {
+      NK.showBusy("写真を取り込み中 " + (i + 1) + " / " + files.length);
+      return shrink(files[i]).then(function (blob) {
         return blob.arrayBuffer().then(function (buf) {
           return NK.encBytes(S.key, buf).then(function (bytes) {
             var pid = NK.nid("p");
             S.fresh[pid] = bytes;
-            S.photos[pid] = pdf
-              ? { t: "application/pdf", n: bytes.length, name: f.name || "資料.pdf" }
-              : { t: blob.type, n: bytes.length };
+            S.photos[pid] = { t: blob.type, n: bytes.length };
             S.urls[pid] = URL.createObjectURL(blob);
             ids.push(pid);
             i++;
@@ -121,7 +121,9 @@
   }
   function photoBytes(pid) {
     if (S.fresh[pid]) return Promise.resolve(S.fresh[pid]);
-    return fetch("data/" + S.id + "/" + pid + ".bin").then(function (r) {
+    return fetch("data/" + S.id + "/" + pid + ".bin", { cache: "no-store" }).then(function (r) {
+      return r.ok ? r : fetch("photos/" + S.id + "/" + pid + ".bin", { cache: "no-store" });
+    }).then(function (r) {
       if (!r.ok) throw { userMessage: "サイト上の写真を読み込めませんでした。サイトを公開した状態で開いてください。" };
       return r.arrayBuffer();
     }).then(function (buf) { return new Uint8Array(buf); });
@@ -203,7 +205,7 @@
   function save() {
     if (canPick()) {
       return run("保存中…", saveToFolder).then(function () {
-        if (!S.dirty) NK.showBusy("フォルダに保存しました。Netlify にフォルダをドラッグすると公開されます。");
+        if (!S.dirty) NK.showBusy("フォルダに保存しました。GitHub に data フォルダをアップロードすると公開されます。");
       });
     }
     return run("書き出し中…", exportZip).then(function () {
@@ -358,46 +360,11 @@
     NK.confirmDelete("単元「" + u.name + "」", as.length ? "この単元の解答 " + as.length + " 件と写真も消えます。" : null).then(function (v) {
       if (!v) return;
       as.forEach(function (a) { (a.photos || []).forEach(dropPhoto); });
-      (u.docs || []).forEach(dropPhoto);
       S.data.answers = S.data.answers.filter(function (a) { return a.unitId !== u.id; });
       S.data.units = S.data.units.filter(function (x) { return x.id !== u.id; });
       touch();
     });
   }
-  function infoOf(pid) { return S.photos[pid] || {}; }
-  function docCard(pid, u) {
-    var info = infoOf(pid);
-    return NK.fileCard({
-      name: info.name || "資料.pdf",
-      size: info.n,
-      load: function () { return photoUrl(pid); },
-      tool: h("button", {
-        class: "icon danger", type: "button", text: "資料を削除",
-        on: { click: function () { removeDoc(u, pid); } }
-      })
-    });
-  }
-  function addDoc(u) {
-    pickOne().then(function (file) {
-      if (!file) return;
-      run("資料を取り込み中…", function () {
-        return addPhotos([file]).then(function (ids) {
-          u.docs = (u.docs || []).concat(ids);
-          S.dirty = true;
-        });
-      });
-    });
-  }
-  function removeDoc(u, pid) {
-    NK.confirmDelete("資料「" + (infoOf(pid).name || "資料") + "」").then(function (v) {
-      if (!v) return;
-      u.docs = (u.docs || []).filter(function (p) { return p !== pid; });
-      dropPhoto(pid);
-      S.dirty = true;
-      render();
-    });
-  }
-
   function addAnswer(u) {
     NK.openForm({
       title: "解答を追加", submit: "追加する",
@@ -577,21 +544,14 @@
     }
     var as = answersOf(cur.id);
     var last = as.reduce(function (m, a) { return Math.max(m, a.updatedAt || 0); }, 0);
-    var docs = cur.docs || [];
     main.appendChild(h("div", { class: "unit-title" },
       h("div", { class: "grow" },
         h("p", { class: "crumb", text: S.name }),
         h("h2", { text: cur.name }),
-        h("p", { class: "meta", text: as.length + "問" + (docs.length ? " ・ 資料" + docs.length + "件" : "") + (last ? " ・ 最終更新 " + NK.fmt(last) : "") })),
+        h("p", { class: "meta", text: as.length + "問" + (last ? " ・ 最終更新 " + NK.fmt(last) : "") })),
       h("button", { class: "icon", type: "button", text: "単元名を変更", on: { click: function () { renameUnit(cur); } } }),
       h("button", { class: "icon danger", type: "button", text: "単元を削除", on: { click: function () { deleteUnit(cur); } } }),
-      h("button", { class: "ghost", type: "button", text: "＋ 資料（PDF）を追加", on: { click: function () { addDoc(cur); } } }),
       h("button", { class: "primary", type: "button", text: "＋ 解答を追加", on: { click: function () { addAnswer(cur); } } })));
-    if (docs.length) {
-      var box = h("div", { class: "docs" }, h("h3", { text: "この単元の資料" }));
-      docs.forEach(function (pid) { box.appendChild(docCard(pid, cur)); });
-      main.appendChild(box);
-    }
     if (!as.length) {
       main.appendChild(h("div", { class: "empty" }, h("strong", { text: "この単元にはまだ解答がありません" }),
         "「＋ 解答を追加」で問題名を入れて写真を選び、最後に下の「保存する」を押してください。"));
@@ -602,15 +562,6 @@
       var revised = (a.rev || 0) > 0;
       var photos = h("div", { class: "photos" });
       (a.photos || []).forEach(function (pid, i) {
-        if (NK.isPdf(infoOf(pid))) {
-          photos.appendChild(NK.fileCard({
-            name: infoOf(pid).name || "資料.pdf",
-            size: infoOf(pid).n,
-            load: function () { return photoUrl(pid); },
-            tool: h("button", { class: "icon danger", type: "button", text: "削除", on: { click: function () { removePhoto(a, pid); } } })
-          }));
-          return;
-        }
         var img = h("img", { alt: a.title + " の解答 " + (i + 1) });
         photoUrl(pid).then(function (u) { img.src = u; }, function () { img.alt = "写真を読み込めませんでした"; });
         photos.appendChild(h("figure", { class: "photo" },
@@ -672,7 +623,6 @@
   }
 
   /* ---------- 起動 ---------- */
-  $("pick").setAttribute("accept", "image/*,application/pdf");
   $("navtoggle").addEventListener("click", function () {
     var o = $("nav").classList.toggle("open");
     this.setAttribute("aria-expanded", o ? "true" : "false");

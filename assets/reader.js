@@ -24,9 +24,8 @@
     if (S.urls[pid]) return Promise.resolve(S.urls[pid]);
     if (!S.pending[pid]) {
       var info = (S.index.photos || {})[pid];
-      /* 写真はブラウザに覚えてもらう（no-store を付けない）＝ 2回目以降は通信しない */
       S.pending[pid] = !info ? Promise.reject(new Error("no photo")) :
-        fetch("data/" + S.id + "/" + pid + ".bin")
+        fetch("data/" + S.id + "/" + pid + ".bin", { cache: "no-store" })
           .then(function (r) { if (!r.ok) throw new Error("fetch"); return r.arrayBuffer(); })
           .then(function (buf) { return NK.decBytes(S.key, new Uint8Array(buf)); })
           .then(function (plain) {
@@ -122,16 +121,6 @@
     $("navlabel").textContent = cur ? cur.name : "単元";
   }
 
-  function infoOf(pid) { return (S.index.photos || {})[pid] || {}; }
-  function docCard(pid) {
-    var info = infoOf(pid);
-    return NK.fileCard({
-      name: info.name || "資料.pdf",
-      size: info.n,
-      load: function () { return photoUrl(pid); }
-    });
-  }
-
   function renderMain(cur) {
     var main = $("main");
     main.textContent = "";
@@ -141,18 +130,12 @@
     }
     var as = answersOf(cur.id);
     var last = as.reduce(function (m, a) { return Math.max(m, a.updatedAt || 0); }, 0);
-    var docs = cur.docs || [];
     main.appendChild(h("div", { class: "unit-title" },
       h("div", { class: "grow" },
         h("p", { class: "crumb", text: S.name }),
         h("h2", { text: cur.name }),
-        h("p", { class: "meta", text: as.length + "問" + (docs.length ? " ・ 資料" + docs.length + "件" : "") + (last ? " ・ 最終更新 " + NK.fmt(last) : "") }))));
-    if (docs.length) {
-      var box = h("div", { class: "docs" }, h("h3", { text: "この単元の資料" }));
-      docs.forEach(function (pid) { box.appendChild(docCard(pid)); });
-      main.appendChild(box);
-    }
-    if (!as.length && !docs.length) {
+        h("p", { class: "meta", text: as.length + "問" + (last ? " ・ 最終更新 " + NK.fmt(last) : "") }))));
+    if (!as.length) {
       main.appendChild(h("div", { class: "empty" }, h("strong", { text: "この単元にはまだ解答がありません" }), "解答が追加されるとここに表示されます。"));
       return;
     }
@@ -161,7 +144,6 @@
       var revised = (a.rev || 0) > 0;
       var photos = h("div", { class: "photos" });
       (a.photos || []).forEach(function (pid, i) {
-        if (NK.isPdf(infoOf(pid))) { photos.appendChild(docCard(pid)); return; }
         var img = h("img", { alt: a.title + " の解答 " + (i + 1) });
         var btn = h("button", {
           class: "view", type: "button",
