@@ -2,7 +2,21 @@
 (function () {
   "use strict";
   var h = NK.h;
-  var MAXPX = 1600;
+
+  /* 写真の取り込み方。白黒・軽量のほうが通信量が半分ほどで済む。 */
+  var MODES = {
+    gray: { px: 1400, q: 0.6, gray: true, label: "白黒・軽量" },
+    color: { px: 1600, q: 0.72, gray: false, label: "カラー" }
+  };
+  function photoMode() {
+    var v;
+    try { v = localStorage.getItem("kaitou-photo-mode"); } catch (e) {}
+    return MODES[v] ? v : "gray";
+  }
+  function togglePhotoMode() {
+    try { localStorage.setItem("kaitou-photo-mode", photoMode() === "gray" ? "color" : "gray"); } catch (e) {}
+    render();
+  }
 
   var S = {
     phase: "loading",      // loading | unsupported | pick | setup | locked | open
@@ -46,9 +60,20 @@
   function toBlob(canvas, type, q) {
     return new Promise(function (res) { canvas.toBlob(res, type, q); });
   }
+  function toGray(ctx, w, h2) {
+    var img, d, i, v;
+    try { img = ctx.getImageData(0, 0, w, h2); } catch (e) { return; }
+    d = img.data;
+    for (i = 0; i < d.length; i += 4) {
+      v = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) | 0;
+      d[i] = d[i + 1] = d[i + 2] = v;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
   function shrink(file) {
+    var m = MODES[photoMode()];
     return createImageBitmap(file, { imageOrientation: "from-image" }).then(function (bmp) {
-      var s = Math.min(1, MAXPX / Math.max(bmp.width, bmp.height));
+      var s = Math.min(1, m.px / Math.max(bmp.width, bmp.height));
       var c = document.createElement("canvas");
       c.width = Math.round(bmp.width * s);
       c.height = Math.round(bmp.height * s);
@@ -56,9 +81,10 @@
       ctx.fillStyle = "#fff";
       ctx.fillRect(0, 0, c.width, c.height);
       ctx.drawImage(bmp, 0, 0, c.width, c.height);
-      return toBlob(c, "image/webp", 0.72).then(function (out) {
+      if (m.gray) toGray(ctx, c.width, c.height);
+      return toBlob(c, "image/webp", m.q).then(function (out) {
         if (out && out.type === "image/webp") return out;
-        return toBlob(c, "image/jpeg", 0.72);
+        return toBlob(c, "image/jpeg", m.q);
       });
     }, function () {
       throw { userMessage: "「" + file.name + "」を読み込めませんでした。JPEG か PNG の写真を選んでください。" };
@@ -67,17 +93,22 @@
       return blob;
     });
   }
+  function isPdfFile(f) { return f.type === "application/pdf" || /\.pdf$/i.test(f.name || ""); }
   function addPhotos(files) {
     var ids = [], i = 0;
     function next() {
       if (i >= files.length) return Promise.resolve(ids);
-      NK.showBusy("写真を取り込み中 " + (i + 1) + " / " + files.length);
-      return shrink(files[i]).then(function (blob) {
+      var f = files[i], pdf = isPdfFile(f);
+      NK.showBusy((pdf ? "資料" : "写真") + "を取り込み中 " + (i + 1) + " / " + files.length);
+      /* PDF は縮小せず、そのまま暗号化して置く */
+      return (pdf ? Promise.resolve(f) : shrink(f)).then(function (blob) {
         return blob.arrayBuffer().then(function (buf) {
           return NK.encBytes(S.key, buf).then(function (bytes) {
             var pid = NK.nid("p");
             S.fresh[pid] = bytes;
-            S.photos[pid] = { t: blob.type, n: bytes.length };
+            S.photos[pid] = pdf
+              ? { t: "application/pdf", n: bytes.length, name: f.name || "資料.pdf" }
+              : { t: blob.type, n: bytes.length };
             S.urls[pid] = URL.createObjectURL(blob);
             ids.push(pid);
             i++;
@@ -90,7 +121,7 @@
   }
   function photoBytes(pid) {
     if (S.fresh[pid]) return Promise.resolve(S.fresh[pid]);
-    return fetch("data/" + S.id + "/" + pid + ".bin", { cache: "no-store" }).then(function (r) {
+    return fetch("data/" + S.id + "/" + pid + ".bin").then(function (r) {
       if (!r.ok) throw { userMessage: "サイト上の写真を読み込めませんでした。サイトを公開した状態で開いてください。" };
       return r.arrayBuffer();
     }).then(function (buf) { return new Uint8Array(buf); });
@@ -327,11 +358,46 @@
     NK.confirmDelete("単元「" + u.name + "」", as.length ? "この単元の解答 " + as.length + " 件と写真も消えます。" : null).then(function (v) {
       if (!v) return;
       as.forEach(function (a) { (a.photos || []).forEach(dropPhoto); });
+      (u.docs || []).forEach(dropPhoto);
       S.data.answers = S.data.answers.filter(function (a) { return a.unitId !== u.id; });
       S.data.units = S.data.units.filter(function (x) { return x.id !== u.id; });
       touch();
     });
   }
+  function infoOf(pid) { return S.photos[pid] || {}; }
+  function docCard(pid, u) {
+    var info = infoOf(pid);
+    return NK.fileCard({
+      name: info.name || "資料.pdf",
+      size: info.n,
+      load: function () { return photoUrl(pid); },
+      tool: h("button", {
+        class: "icon danger", type: "button", text: "資料を削除",
+        on: { click: function () { removeDoc(u, pid); } }
+      })
+    });
+  }
+  function addDoc(u) {
+    pickOne().then(function (file) {
+      if (!file) return;
+      run("資料を取り込み中…", function () {
+        return addPhotos([file]).then(function (ids) {
+          u.docs = (u.docs || []).concat(ids);
+          S.dirty = true;
+        });
+      });
+    });
+  }
+  function removeDoc(u, pid) {
+    NK.confirmDelete("資料「" + (infoOf(pid).name || "資料") + "」").then(function (v) {
+      if (!v) return;
+      u.docs = (u.docs || []).filter(function (p) { return p !== pid; });
+      dropPhoto(pid);
+      S.dirty = true;
+      render();
+    });
+  }
+
   function addAnswer(u) {
     NK.openForm({
       title: "解答を追加", submit: "追加する",
@@ -496,6 +562,7 @@
       h("button", { class: "add", type: "button", text: "＋ 単元を追加", on: { click: addUnit } })));
     nav.appendChild(h("div", { class: "side-tools" },
       h("div", { class: "meter", text: "写真 " + Object.keys(S.photos).length + "枚 ・ " + NK.mb(usedBytes()) }),
+      h("button", { class: "icon", type: "button", text: "写真の画質：" + MODES[photoMode()].label, on: { click: togglePhotoMode } }),
       h("button", { class: "icon", type: "button", text: "科目名を変更", on: { click: renameSubject } }),
       h("button", { class: "icon", type: "button", text: "合言葉を変更", on: { click: changePass } }),
       h("button", { class: "icon", type: "button", text: "← 科目を選び直す", on: { click: back } })));
@@ -510,14 +577,21 @@
     }
     var as = answersOf(cur.id);
     var last = as.reduce(function (m, a) { return Math.max(m, a.updatedAt || 0); }, 0);
+    var docs = cur.docs || [];
     main.appendChild(h("div", { class: "unit-title" },
       h("div", { class: "grow" },
         h("p", { class: "crumb", text: S.name }),
         h("h2", { text: cur.name }),
-        h("p", { class: "meta", text: as.length + "問" + (last ? " ・ 最終更新 " + NK.fmt(last) : "") })),
+        h("p", { class: "meta", text: as.length + "問" + (docs.length ? " ・ 資料" + docs.length + "件" : "") + (last ? " ・ 最終更新 " + NK.fmt(last) : "") })),
       h("button", { class: "icon", type: "button", text: "単元名を変更", on: { click: function () { renameUnit(cur); } } }),
       h("button", { class: "icon danger", type: "button", text: "単元を削除", on: { click: function () { deleteUnit(cur); } } }),
+      h("button", { class: "ghost", type: "button", text: "＋ 資料（PDF）を追加", on: { click: function () { addDoc(cur); } } }),
       h("button", { class: "primary", type: "button", text: "＋ 解答を追加", on: { click: function () { addAnswer(cur); } } })));
+    if (docs.length) {
+      var box = h("div", { class: "docs" }, h("h3", { text: "この単元の資料" }));
+      docs.forEach(function (pid) { box.appendChild(docCard(pid, cur)); });
+      main.appendChild(box);
+    }
     if (!as.length) {
       main.appendChild(h("div", { class: "empty" }, h("strong", { text: "この単元にはまだ解答がありません" }),
         "「＋ 解答を追加」で問題名を入れて写真を選び、最後に下の「保存する」を押してください。"));
@@ -528,6 +602,15 @@
       var revised = (a.rev || 0) > 0;
       var photos = h("div", { class: "photos" });
       (a.photos || []).forEach(function (pid, i) {
+        if (NK.isPdf(infoOf(pid))) {
+          photos.appendChild(NK.fileCard({
+            name: infoOf(pid).name || "資料.pdf",
+            size: infoOf(pid).n,
+            load: function () { return photoUrl(pid); },
+            tool: h("button", { class: "icon danger", type: "button", text: "削除", on: { click: function () { removePhoto(a, pid); } } })
+          }));
+          return;
+        }
         var img = h("img", { alt: a.title + " の解答 " + (i + 1) });
         photoUrl(pid).then(function (u) { img.src = u; }, function () { img.alt = "写真を読み込めませんでした"; });
         photos.appendChild(h("figure", { class: "photo" },
@@ -589,6 +672,7 @@
   }
 
   /* ---------- 起動 ---------- */
+  $("pick").setAttribute("accept", "image/*,application/pdf");
   $("navtoggle").addEventListener("click", function () {
     var o = $("nav").classList.toggle("open");
     this.setAttribute("aria-expanded", o ? "true" : "false");

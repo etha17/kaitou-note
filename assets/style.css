@@ -98,6 +98,18 @@ a{color:var(--accent)}
 .note{margin:10px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;max-width:65ch}
 .answer-tools{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
 
+/* 単元の資料（PDF など） */
+.docs{margin-bottom:22px;max-width:860px}
+.docs h3{font-family:var(--font-display);font-size:1rem;margin:0 0 8px;color:var(--muted)}
+.doc{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:10px;padding:14px 16px;margin-bottom:10px}
+.doc-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin-bottom:10px}
+.doc-name{font-weight:700;flex:1;min-width:0;overflow-wrap:anywhere}
+.doc-size{font-size:.82rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.doc-body{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+.doc-actions{display:flex;flex-wrap:wrap;gap:8px}
+.doc-actions a{text-decoration:none}
+.doc-view{width:100%;height:min(80vh,900px);border:1px solid var(--line);border-radius:6px;background:#fff}
+
 .empty{background:var(--surface);border:1px dashed var(--line);border-radius:10px;padding:26px 20px;color:var(--muted);max-width:860px}
 .empty strong{color:var(--ink);display:block;font-family:var(--font-display);font-size:1.05rem;margin-bottom:4px}
 

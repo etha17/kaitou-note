@@ -100,7 +100,7 @@
       (opt.fields || []).forEach(function (f) {
         var id = "nk-f-" + f.id, input;
         if (f.type === "textarea") { input = h("textarea", { id: id, placeholder: f.placeholder }); input.value = f.value || ""; }
-        else if (f.type === "files") input = h("input", { id: id, type: "file", accept: "image/*", multiple: "multiple" });
+        else if (f.type === "files") input = h("input", { id: id, type: "file", accept: f.accept || "image/*,application/pdf", multiple: "multiple" });
         else if (f.type === "password") input = h("input", { id: id, type: "password", autocomplete: "new-password" });
         else { input = h("input", { id: id, type: "text", placeholder: f.placeholder, maxlength: "80", autocomplete: "off" }); input.value = f.value || ""; }
         if (f.required) input.required = true;
@@ -144,6 +144,37 @@
     dlg.showModal();
   }
 
+  /* ---------- PDF などの資料カード ----------
+     重いので、押されたときに初めて読み込む。
+     opt: {name, size, load(): Promise<blobURL>, tool}  */
+  function fileCard(opt) {
+    var name = opt.name || "資料.pdf";
+    var body = h("div", { class: "doc-body" });
+    var btn = h("button", { class: "primary", type: "button", text: "資料を開く" });
+    btn.addEventListener("click", function () {
+      btn.disabled = true;
+      btn.textContent = "読み込み中…";
+      opt.load().then(function (url) {
+        body.textContent = "";
+        body.appendChild(h("div", { class: "doc-actions" },
+          h("a", { class: "ghost", href: url, target: "_blank", rel: "noopener", text: "別のタブで開く" }),
+          h("a", { class: "ghost", href: url, download: name, text: "保存する" })));
+        body.appendChild(h("iframe", { class: "doc-view", src: url, title: name }));
+      }, function () {
+        btn.disabled = false;
+        btn.textContent = "開けませんでした。もう一度試す";
+      });
+    });
+    body.appendChild(btn);
+    return h("div", { class: "doc" },
+      h("div", { class: "doc-head" },
+        h("span", { class: "doc-name", text: name }),
+        h("span", { class: "doc-size", text: opt.size ? mb(opt.size) : "" }),
+        opt.tool || null),
+      body);
+  }
+  function isPdf(info) { return !!info && info.t === "application/pdf"; }
+
   /* ---------- 合言葉を端末に覚えておく ---------- */
   function keyStore(id) { return "kaitou-note:" + id; }
   function rememberKey(id, salt, key) {
@@ -178,6 +209,7 @@
     encBytes: encBytes, decBytes: decBytes, encJson: encJson, decJson: decJson,
     h: h, nid: nid, fmt: fmt, mb: mb, byTitle: byTitle, safeId: safeId,
     showBusy: showBusy, openForm: openForm, confirmDelete: confirmDelete, lightbox: lightbox,
+    fileCard: fileCard, isPdf: isPdf,
     rememberKey: rememberKey, forgetKey: forgetKey, recallKey: recallKey, loadSubjects: loadSubjects,
     supported: function () { return !!(global.crypto && crypto.subtle && global.fetch); }
   };
